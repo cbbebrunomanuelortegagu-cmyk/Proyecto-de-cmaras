@@ -17,12 +17,14 @@
         .sidebar a:hover, .sidebar a.active { background-color: #343a40; color: white; border-left: 4px solid #0d6efd; }
         
         .main-content { margin-left: 260px; padding: 30px; width: calc(100% - 260px); }
-        .card-custom { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .card-custom { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: 0.3s; }
+        .card-custom:hover { transform: translateY(-5px); }
         .plate-box { background-color: #ffc107; color: black; font-weight: bold; padding: 4px 10px; border: 2px solid #000; border-radius: 4px; font-family: monospace; }
         
-        /* Secciones ocultas por defecto */
         .content-section { display: none; }
         .content-section.active { display: block; }
+
+        .cam-icon { width: 50px; height: 50px; background: #e9ecef; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #0d6efd; }
     </style>
 </head>
 <body>
@@ -53,10 +55,10 @@
     <div id="dashboard-view">
         <div class="sidebar">
             <div class="p-4 text-center border-bottom border-secondary mb-3">
-                <h5 class="fw-bold mb-0 text-white"><i class="fa-solid fa-microchip text-primary"></i> VIAL-IA</h5>
+                <h5 class="fw-bold mb-0 text-white"><i class="fa-solid fa-camera-retro text-primary"></i> VIAL-IA</h5>
             </div>
             <a onclick="showSection('sec-infracciones')" id="link-infracciones" class="active"><i class="fa-solid fa-table-list me-3"></i> Infracciones</a>
-            <a onclick="showSection('sec-nodos')" id="link-nodos"><i class="fa-solid fa-circle-nodes me-3"></i> Nodos Edge</a>
+            <a onclick="showSection('sec-camaras')" id="link-camaras"><i class="fa-solid fa-video me-3"></i> Cámaras Instaladas</a>
             <a onclick="showSection('sec-config')" id="link-config"><i class="fa-solid fa-gears me-3"></i> Configuración</a>
             <div style="margin-top: 100px;">
                 <a onclick="cerrarSesion()" class="text-danger"><i class="fa-solid fa-power-off me-3"></i> Salir</a>
@@ -65,14 +67,14 @@
 
         <div class="main-content">
             <div id="sec-infracciones" class="content-section active">
-                <h2 class="fw-bold mb-4">Bandeja de Revisión Humana (RF7)</h2>
+                <h2 class="fw-bold mb-4">Bandeja de Revisión</h2>
                 <div class="card card-custom bg-white">
                     <div class="card-body p-0">
                         <table class="table table-hover align-middle mb-0">
                             <thead class="bg-light">
                                 <tr>
                                     <th class="ps-4">ID</th>
-                                    <th>Cámara / Nodo</th>
+                                    <th>Cámara / Ubicación</th>
                                     <th>Falta</th>
                                     <th>Placa OCR</th>
                                     <th class="text-center">Acción</th>
@@ -81,17 +83,10 @@
                             <tbody>
                                 <tr>
                                     <td class="ps-4">#INF-001</td>
-                                    <td>Blanco Galindo - Poste 02</td>
+                                    <td>Cámara 02 - Norte</td>
                                     <td><span class="badge bg-danger">Semáforo Rojo</span></td>
                                     <td><span class="plate-box">4589-HTR</span></td>
-                                    <td class="text-center"><button class="btn btn-primary btn-sm px-3" onclick="revisarInfraccion('4589-HTR', 'Semáforo Rojo', 'El vehículo cruzó la intersección 0.5s después de que el semáforo cambió a rojo sólido.')">Revisar</button></td>
-                                </tr>
-                                <tr>
-                                    <td class="ps-4">#INF-002</td>
-                                    <td>Av. Ayacucho - Poste 05</td>
-                                    <td><span class="badge bg-warning text-dark">Paso Cebra</span></td>
-                                    <td><span class="plate-box">1234-XYZ</span></td>
-                                    <td class="text-center"><button class="btn btn-primary btn-sm px-3" onclick="revisarInfraccion('1234-XYZ', 'Invasión Paso Cebra', 'El vehículo se detuvo sobre el área destinada al cruce peatonal mientras el semáforo estaba en rojo.')">Revisar</button></td>
+                                    <td class="text-center"><button class="btn btn-primary btn-sm px-3" onclick="revisarInfraccion('4589-HTR', 'Semáforo Rojo', 'El vehículo cruzó la intersección 0.5s después de que el semáforo cambió a rojo.')">Revisar</button></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -99,50 +94,138 @@
                 </div>
             </div>
 
-            <div id="sec-nodos" class="content-section">
-                <h2 class="fw-bold mb-4">Gestión de Nodos Edge (Postes)</h2>
-                <div class="row g-3">
-                    <div class="col-md-4">
-                        <div class="card card-custom p-3 bg-white">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <h5 class="fw-bold mb-0">Nodo 01 - Centro</h5>
-                                <span class="badge bg-success">Online</span>
+            <div id="sec-camaras" class="content-section">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2 class="fw-bold mb-0">Gestión de Cámaras Instaladas</h2>
+                    <button class="btn btn-primary shadow-sm" onclick="abrirModalAddCamara()"><i class="fa-solid fa-plus me-2"></i> Añadir Cámara</button>
+                </div>
+                
+                <div class="row g-4" id="contenedor-camaras">
+                    <div class="col-md-6 col-lg-4" id="card-cam-1">
+                        <div class="card card-custom p-4 bg-white">
+                            <div class="d-flex align-items-start justify-content-between mb-3">
+                                <div class="cam-icon"><i class="fa-solid fa-video fa-lg"></i></div>
+                                <span class="badge bg-success">En línea</span>
                             </div>
-                            <hr>
-                            <p class="small mb-1 text-muted">Cámara IP: 192.168.1.10</p>
-                            <p class="small mb-0 text-muted">Carga CPU IA: 45%</p>
+                            <h5 class="fw-bold mb-1" id="name-cam-1">Cámara 01 - Centro</h5>
+                            <p class="text-muted small mb-3" id="loc-cam-1"><i class="fa-solid fa-location-dot me-1"></i> Av. Ayacucho y Heroínas</p>
+                            
+                            <div class="bg-light p-2 rounded mb-3">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span>Dirección IP:</span>
+                                    <span class="fw-bold" id="ip-cam-1">192.168.1.10</span>
+                                </div>
+                                <div class="d-flex justify-content-between small">
+                                    <span>Carga CPU IA:</span>
+                                    <span class="fw-bold">42%</span>
+                                </div>
+                            </div>
+                            
+                            <button class="btn btn-outline-dark btn-sm w-100" onclick="abrirEditorCamara(1)">
+                                <i class="fa-solid fa-pen-to-square me-2"></i> Editar Cámara
+                            </button>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="card card-custom p-3 bg-white">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <h5 class="fw-bold mb-0">Nodo 02 - Norte</h5>
-                                <span class="badge bg-success">Online</span>
+
+                    <div class="col-md-6 col-lg-4" id="card-cam-2">
+                        <div class="card card-custom p-4 bg-white">
+                            <div class="d-flex align-items-start justify-content-between mb-3">
+                                <div class="cam-icon"><i class="fa-solid fa-video fa-lg"></i></div>
+                                <span class="badge bg-success">En línea</span>
                             </div>
-                            <hr>
-                            <p class="small mb-1 text-muted">Cámara IP: 192.168.1.11</p>
-                            <p class="small mb-0 text-muted">Carga CPU IA: 38%</p>
+                            <h5 class="fw-bold mb-1" id="name-cam-2">Cámara 02 - Norte</h5>
+                            <p class="text-muted small mb-3" id="loc-cam-2"><i class="fa-solid fa-location-dot me-1"></i> Av. Blanco Galindo Km 2</p>
+                            
+                            <div class="bg-light p-2 rounded mb-3">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span>Dirección IP:</span>
+                                    <span class="fw-bold" id="ip-cam-2">192.168.1.11</span>
+                                </div>
+                                <div class="d-flex justify-content-between small">
+                                    <span>Carga CPU IA:</span>
+                                    <span class="fw-bold">35%</span>
+                                </div>
+                            </div>
+                            
+                            <button class="btn btn-outline-dark btn-sm w-100" onclick="abrirEditorCamara(2)">
+                                <i class="fa-solid fa-pen-to-square me-2"></i> Editar Cámara
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div id="sec-config" class="content-section">
-                <h2 class="fw-bold mb-4">Configuración del Sistema</h2>
+                <h2 class="fw-bold mb-4">Configuración General</h2>
                 <div class="card card-custom p-4 bg-white" style="max-width: 600px;">
                     <div class="mb-3">
-                        <label class="form-label fw-bold">Umbral de Confianza YOLO (%)</label>
+                        <label class="form-label fw-bold">Umbral de Detección IA (%)</label>
                         <input type="range" class="form-range" min="0" max="100" value="85">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-bold">URL Servidor Central (Kafka)</label>
-                        <input type="text" class="form-control" value="http://central-server.city:9092">
+                        <label class="form-label fw-bold">Servidor de Almacenamiento</label>
+                        <input type="text" class="form-control" value="http://alcaldia-cloud.gob.bo">
                     </div>
-                    <div class="form-check form-switch mb-4">
-                        <input class="form-check-input" type="checkbox" checked>
-                        <label class="form-check-label">Guardar copia en Buffer Local (RNF1)</label>
+                    <button class="btn btn-primary" onclick="alert('Configuración guardada')">Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalAddCamara" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow" style="border-radius: 20px;">
+                <div class="modal-header bg-primary text-white" style="border-radius: 20px 20px 0 0;">
+                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-plus me-2"></i> Registrar Nueva Cámara</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nombre Identificador</label>
+                        <input type="text" id="add-cam-name" class="form-control" placeholder="Ej: Cámara 03 - Sur">
                     </div>
-                    <button class="btn btn-dark" onclick="alert('Configuración guardada correctamente.')">Guardar Cambios</button>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ubicación (Calle / Avenida)</label>
+                        <input type="text" id="add-cam-loc" class="form-control" placeholder="Ej: Av. Panamericana">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Dirección IP de Red</label>
+                        <input type="text" id="add-cam-ip" class="form-control" placeholder="Ej: 192.168.1.15">
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                    <button class="btn btn-primary px-4 fw-bold" onclick="guardarNuevaCamara()">Registrar Cámara</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalEditCamara" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow" style="border-radius: 20px;">
+                <div class="modal-header bg-dark text-white" style="border-radius: 20px 20px 0 0;">
+                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-gear me-2"></i> Configurar Cámara</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <input type="hidden" id="edit-cam-id">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nombre Identificador</label>
+                        <input type="text" id="edit-cam-name" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ubicación (Calle / Avenida)</label>
+                        <input type="text" id="edit-cam-loc" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Dirección IP de Red</label>
+                        <input type="text" id="edit-cam-ip" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                    <button class="btn btn-primary px-4 fw-bold" onclick="guardarCambiosCamara()">Guardar Cambios</button>
                 </div>
             </div>
         </div>
@@ -152,7 +235,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow" style="border-radius: 20px;">
                 <div class="modal-header bg-dark text-white" style="border-radius: 20px 20px 0 0;">
-                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-magnifying-glass me-2"></i> Análisis de Evidencia</h5>
+                    <h5 class="modal-title fw-bold">Análisis de Evidencia</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body text-center p-4">
@@ -160,13 +243,13 @@
                     <h4 class="fw-bold text-primary mb-1" id="detFalta">---</h4>
                     <div class="mb-3"><span class="plate-box fs-5" id="detPlaca">---</span></div>
                     <div class="alert alert-light border text-start">
-                        <h6 class="fw-bold"><i class="fa-solid fa-info-circle"></i> Descripción Humanizada:</h6>
+                        <h6 class="fw-bold">Descripción:</h6>
                         <p id="detDesc" class="small mb-0 text-muted">---</p>
                     </div>
                 </div>
                 <div class="modal-footer border-0">
                     <button class="btn btn-outline-danger" data-bs-dismiss="modal">Falso Positivo</button>
-                    <button class="btn btn-success px-4 fw-bold" onclick="alert('PDF Generado Exitosamente'); location.reload();">Emitir Boleta Oficial</button>
+                    <button class="btn btn-success px-4 fw-bold" onclick="finalizarEmision()">Emitir Boleta Oficial</button>
                 </div>
             </div>
         </div>
@@ -187,31 +270,124 @@
             }
         }
 
-        // SALIDA DIRECTA
         function cerrarSesion() {
             document.getElementById('dashboard-view').style.display = 'none';
             document.getElementById('login-view').style.setProperty('display', 'flex', 'important');
         }
 
-        // NAVEGACIÓN ENTRE SECCIONES
+        // NAVEGACIÓN
         function showSection(sectionId) {
-            // Ocultar todas
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
-            // Mostrar seleccionada
             document.getElementById(sectionId).classList.add('active');
-            // Activar link en sidebar
             const btnId = 'link-' + sectionId.split('-')[1];
             document.getElementById(btnId).classList.add('active');
         }
 
-        // FUNCIONALIDAD REVISAR
+        // REVISIÓN
         const myModal = new bootstrap.Modal(document.getElementById('modalDetalle'));
         function revisarInfraccion(placa, falta, desc) {
             document.getElementById('detPlaca').innerText = placa;
             document.getElementById('detFalta').innerText = falta;
             document.getElementById('detDesc').innerText = desc;
             myModal.show();
+        }
+
+        function finalizarEmision() {
+            alert("✅ Boleta Generada con éxito.");
+            myModal.hide();
+        }
+
+        // --- LÓGICA DE EDICIÓN DE CÁMARAS ---
+        const modalEditor = new bootstrap.Modal(document.getElementById('modalEditCamara'));
+
+        function abrirEditorCamara(id) {
+            const nombreActual = document.getElementById(`name-cam-${id}`).innerText;
+            const ubicacionActual = document.getElementById(`loc-cam-${id}`).innerText;
+            const ipActual = document.getElementById(`ip-cam-${id}`).innerText;
+
+            document.getElementById('edit-cam-id').value = id;
+            document.getElementById('edit-cam-name').value = nombreActual;
+            document.getElementById('edit-cam-loc').value = ubicacionActual;
+            document.getElementById('edit-cam-ip').value = ipActual;
+
+            modalEditor.show();
+        }
+
+        function guardarCambiosCamara() {
+            const id = document.getElementById('edit-cam-id').value;
+            const nuevoNombre = document.getElementById('edit-cam-name').value;
+            const nuevaLoc = document.getElementById('edit-cam-loc').value;
+            const nuevaIp = document.getElementById('edit-cam-ip').value;
+
+            document.getElementById(`name-cam-${id}`).innerText = nuevoNombre;
+            document.getElementById(`loc-cam-${id}`).innerText = nuevaLoc;
+            document.getElementById(`ip-cam-${id}`).innerText = nuevaIp;
+
+            alert("✅ Cámara actualizada correctamente en el registro.");
+            modalEditor.hide();
+        }
+
+        // --- LÓGICA PARA AÑADIR NUEVA CÁMARA ---
+        const modalAdd = new bootstrap.Modal(document.getElementById('modalAddCamara'));
+        let contadorCamaras = 2; // Ya tenemos 2 cámaras iniciales
+
+        function abrirModalAddCamara() {
+            // Limpiamos los campos antes de abrir
+            document.getElementById('add-cam-name').value = '';
+            document.getElementById('add-cam-loc').value = '';
+            document.getElementById('add-cam-ip').value = '';
+            modalAdd.show();
+        }
+
+        function guardarNuevaCamara() {
+            // Obtenemos los valores ingresados
+            const nombre = document.getElementById('add-cam-name').value || 'Cámara sin nombre';
+            const loc = document.getElementById('add-cam-loc').value || 'Ubicación no especificada';
+            const ip = document.getElementById('add-cam-ip').value || '0.0.0.0';
+
+            // Incrementamos el ID para la nueva tarjeta
+            contadorCamaras++;
+            const nuevoId = contadorCamaras;
+
+            // Creamos el contenedor de la nueva tarjeta HTML
+            const nuevaTarjeta = document.createElement('div');
+            nuevaTarjeta.className = 'col-md-6 col-lg-4';
+            nuevaTarjeta.id = `card-cam-${nuevoId}`;
+
+            // Inyectamos el HTML de la tarjeta con las variables
+            nuevaTarjeta.innerHTML = `
+                <div class="card card-custom p-4 bg-white">
+                    <div class="d-flex align-items-start justify-content-between mb-3">
+                        <div class="cam-icon"><i class="fa-solid fa-video fa-lg"></i></div>
+                        <span class="badge bg-success">Recién añadida</span>
+                    </div>
+                    <h5 class="fw-bold mb-1" id="name-cam-${nuevoId}">${nombre}</h5>
+                    <p class="text-muted small mb-3" id="loc-cam-${nuevoId}"><i class="fa-solid fa-location-dot me-1"></i> ${loc}</p>
+                    
+                    <div class="bg-light p-2 rounded mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>Dirección IP:</span>
+                            <span class="fw-bold" id="ip-cam-${nuevoId}">${ip}</span>
+                        </div>
+                        <div class="d-flex justify-content-between small">
+                            <span>Carga CPU IA:</span>
+                            <span class="fw-bold">15%</span>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-outline-dark btn-sm w-100" onclick="abrirEditorCamara(${nuevoId})">
+                        <i class="fa-solid fa-pen-to-square me-2"></i> Editar Cámara
+                    </button>
+                </div>
+            `;
+
+            // Añadimos la tarjeta al contenedor principal
+            document.getElementById('contenedor-camaras').appendChild(nuevaTarjeta);
+            
+            // Cerramos modal y avisamos
+            modalAdd.hide();
+            alert("✅ Cámara nueva añadida exitosamente y lista para monitoreo.");
         }
     </script>
 </body>
