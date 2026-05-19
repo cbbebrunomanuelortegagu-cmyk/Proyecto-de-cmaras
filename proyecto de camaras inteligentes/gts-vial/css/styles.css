@@ -1,0 +1,129 @@
+/* =============================================
+   GTS VIAL - Estilos Principales
+   Alcaldía Control Vial - Sistema Inteligente
+   ============================================= */
+
+/* === BASE === */
+body {
+    background-color: #f0f4f8;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow-x: hidden;
+}
+
+/* === ANIMACIONES === */
+.fade-in {
+    animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* === VISTAS PRINCIPALES === */
+#login-view {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0d6efd 0%, #00d2ff 100%);
+}
+
+#dashboard-view {
+    display: none;
+}
+
+/* === SIDEBAR === */
+.sidebar {
+    min-height: 100vh;
+    background-color: #ffffff;
+    box-shadow: 2px 0 15px rgba(0,0,0,0.05);
+    width: 260px;
+    position: fixed;
+    z-index: 100;
+}
+
+.sidebar-header {
+    background: linear-gradient(90deg, #0d6efd, #0056b3);
+    color: white;
+    padding: 20px;
+    text-align: center;
+    border-bottom-right-radius: 15px;
+}
+
+.sidebar a {
+    color: #495057;
+    text-decoration: none;
+    padding: 15px 20px;
+    display: block;
+    border-left: 4px solid transparent;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.sidebar a:hover,
+.sidebar a.active {
+    background-color: #f8f9fa;
+    color: #0d6efd;
+    border-left: 4px solid #0d6efd;
+}
+
+/* === CONTENIDO PRINCIPAL === */
+.main-content {
+    margin-left: 260px;
+    padding: 40px;
+    width: calc(100% - 260px);
+}
+
+.card-custom {
+    border-radius: 15px;
+    border: none;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+    transition: 0.3s;
+}
+
+.card-custom:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 25px rgba(0,0,0,0.08);
+}
+
+/* === PLACA VEHICULAR === */
+.plate-box {
+    background-color: #fdb913;
+    color: black;
+    font-weight: bold;
+    padding: 5px 12px;
+    border: 2px solid #333;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 1.1rem;
+    letter-spacing: 1px;
+}
+
+/* === SECCIONES DE CONTENIDO === */
+.content-section {
+    display: none;
+}
+
+.content-section.active {
+    display: block;
+}
+
+/* === ICONO DE CÁMARA === */
+.cam-icon {
+    width: 55px;
+    height: 55px;
+    background: #e3f2fd;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #0d6efd;
+}
+
+/* === TABLA === */
+.table-hover tbody tr:hover {
+    background-color: #f8f9fa;
+    transition: 0.2s;
+}
