@@ -4,7 +4,7 @@
    ============================================= */
 
 // === INSTANCIAS DE MODALES (Bootstrap) ===
-// Se inicializan al cargar el DOM para evitar errores
+
 const myModal  = new bootstrap.Modal(document.getElementById('modalDetalle'));
 const modalAdd = new bootstrap.Modal(document.getElementById('modalAddCamara'));
 
@@ -80,7 +80,13 @@ function showSection(sectionId) {
 // MÓDULO: INFRACCIONES
 // ─────────────────────────────────────────────
 
+// Guardamos el ID de la infracción que está abierta en el modal
+let infraccionActivaId = null;
+
 function revisarInfraccion(id, placa, falta, camara, dueño, auto) {
+    // Guardar qué infracción se está revisando ahora mismo
+    infraccionActivaId = id;
+
     document.getElementById('detId').innerText     = id;
     document.getElementById('detPlaca').innerText  = placa;
     document.getElementById('detFalta').innerText  = falta;
@@ -91,24 +97,55 @@ function revisarInfraccion(id, placa, falta, camara, dueño, auto) {
     myModal.show();
 }
 
+function cambiarEstadoBoton(id, nuevoEstado) {
+    // Busca el botón cuyo onclick contiene el ID de la infracción
+    const botones = document.querySelectorAll('.btn-revisar');
+    botones.forEach(btn => {
+        if (btn.getAttribute('onclick').includes(`'${id}'`)) {
+            // Limpiar clases de estado anteriores
+            btn.classList.remove('emitida', 'rechazada');
+
+            if (nuevoEstado === 'emitida') {
+                btn.classList.add('emitida');
+                btn.innerHTML = '<i class="fa-solid fa-check-double me-1"></i> Boleta Emitida';
+            } else if (nuevoEstado === 'rechazada') {
+                btn.classList.add('rechazada');
+                btn.innerHTML = '<i class="fa-solid fa-xmark me-1"></i> Rechazada';
+            }
+        }
+    });
+}
+
 function finalizarEmision() {
     myModal.hide();
+
+    // Cambiar el botón de esa infracción a VERDE
+    cambiarEstadoBoton(infraccionActivaId, 'emitida');
+
     Swal.fire({
         title: 'Boleta Generada',
         text: 'La multa ha sido registrada en la Base de Datos oficial.',
         icon: 'success',
         confirmButtonColor: '#198754'
     });
+
+    infraccionActivaId = null;
 }
 
 function rechazarMulta() {
     myModal.hide();
+
+    // Cambiar el botón de esa infracción a GRIS
+    cambiarEstadoBoton(infraccionActivaId, 'rechazada');
+
     Swal.fire({
         title: 'Infracción Descartada',
         text: 'El registro ha sido marcado como Falso Positivo.',
         icon: 'info',
         confirmButtonColor: '#6c757d'
     });
+
+    infraccionActivaId = null;
 }
 
 
