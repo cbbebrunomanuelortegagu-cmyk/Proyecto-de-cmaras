@@ -42,23 +42,19 @@ class CamaraInteligente(CamaraBase):
         self.modelo = YOLO(modelo_yolo)
         print("Modelo cargado con exito!\n")
 
-        # ── Solo buscamos AUTOS (clase 2 del dataset COCO) ──
-        # COCO: 0=persona, 1=bicicleta, 2=auto, 3=moto, 5=bus, 7=camion
-        self.clases_objetivo = [2]  # <-- Solo autos
 
-        # Umbral de confianza bajo para pruebas (detecta mas cosas)
-        # Si hay muchos falsos positivos, sube esto a 0.45 o 0.55
+        self.clases_objetivo = [2] 
+
         self.confianza = 0.35
 
-        # Contador total de detecciones en la sesion
         self.total_detecciones = 0
 
     def iniciar_monitoreo(self):
         """Bucle principal que captura, procesa y muestra el video."""
-        print("=" * 50)
+        print("=" * 55)
         print("  MONITOREO INICIADO - Solo detectando AUTOS")
         print("  Presiona Q para apagar el sistema")
-        print("=" * 50)
+        print("=" * 55)
 
         tiempo_anterior = time.time()
 
@@ -79,11 +75,20 @@ class CamaraInteligente(CamaraBase):
             # ── 2. Contar cuantos autos detecto en este frame ──
             detecciones_frame = len(resultados[0].boxes)
 
-            # ── 3. Imprimir en terminal si detecto algo (solo para pruebas) ──
+            # ── 3. Imprimir en terminal con fecha, hora y fiabilidad ──
             if detecciones_frame > 0:
                 self.total_detecciones += detecciones_frame
-                print(f"[DETECCION] Autos en pantalla: {detecciones_frame} | "
-                      f"Confianzas: {[round(float(c), 2) for c in resultados[0].boxes.conf.tolist()]}")
+
+                ahora      = time.localtime()
+                dias       = ["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"]
+                dia_semana = dias[ahora.tm_wday]
+                fecha      = f"{ahora.tm_mday:02d}/{ahora.tm_mon:02d}/{ahora.tm_year}"
+                hora       = f"{ahora.tm_hour:02d}:{ahora.tm_min:02d}:{ahora.tm_sec:02d}"
+                fiabilidad = [f"{round(float(c)*100, 1)}%" for c in resultados[0].boxes.conf.tolist()]
+
+                print(f"[DETECCION]  {dia_semana} {fecha}  {hora}"
+                      f"  |  Autos: {detecciones_frame}"
+                      f"  |  Fiabilidad: {fiabilidad}")
 
             # ── 4. Dibujar los recuadros sobre el frame ──
             frame_procesado = resultados[0].plot()
@@ -94,7 +99,6 @@ class CamaraInteligente(CamaraBase):
             tiempo_anterior = tiempo_actual
 
             # ── 6. Agregar texto de estado en la pantalla ──
-            # Fondo semitransparente para el texto
             overlay = frame_procesado.copy()
             cv2.rectangle(overlay, (0, 0), (320, 70), (0, 0, 0), -1)
             cv2.addWeighted(overlay, 0.5, frame_procesado, 0.5, 0, frame_procesado)
@@ -114,11 +118,10 @@ class CamaraInteligente(CamaraBase):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        # ── Resumen final en terminal ──
-        print("\n" + "=" * 50)
+        print("\n" + "=" * 55)
         print(f"  SESION TERMINADA")
         print(f"  Total de detecciones en esta sesion: {self.total_detecciones}")
-        print("=" * 50)
+        print("=" * 55)
 
         self.apagar()
 
