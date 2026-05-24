@@ -33,8 +33,7 @@ class CamaraInteligente(CamaraBase):
     def __init__(self, indice_camara=0, modelo_yolo='yolov8s.pt'):
         """
         HERENCIA: Llama al constructor del padre y carga el modelo IA.
-        Usamos 'yolov8s.pt' (Small) en vez de Nano, detecta mejor objetos
-        pequeños como autos de juguete o autos en pantalla de celular.
+        Usamos 'yolov8s.pt' (Small) — detecta mejor objetos pequeños.
         """
         super().__init__(indice_camara)
 
@@ -42,19 +41,101 @@ class CamaraInteligente(CamaraBase):
         self.modelo = YOLO(modelo_yolo)
         print("Modelo cargado con exito!\n")
 
+        # Solo autos (clase 2 del dataset COCO)
+        self.clases_objetivo = [2]
+        self.confianza        = 0.35
 
-        self.clases_objetivo = [2] 
+        # ── Estadisticas de sesion ──
+        self.id_deteccion      = 0          # Contador unico por cada auto registrado
+        self.total_detecciones = 0          # Cuantos autos en total se detectaron
+        self.fiabilidades      = []         # Guardamos todas para calcular el promedio al final
+        self.tiempo_inicio     = None       # Para calcular duracion de la sesion
 
-        self.confianza = 0.35
+    # ──────────────────────────────────────────
+    # Dibuja recuadros personalizados en español
+    # en vez de usar el .plot() default de YOLO
+    # ──────────────────────────────────────────
+    def dibujar_recuadros(self, frame, resultados):
+        """
+        Recorre cada deteccion y dibuja manualmente el recuadro
+        con color y texto en español. Retorna el frame modificado.
+        """
+        for box in resultados[0].boxes:
+            confianza_val = float(box.conf[0])
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-        self.total_detecciones = 0
+            # Color segun nivel de fiabilidad:
+            # Verde fuerte  = alta confianza (>=80%)
+            # Verde normal  = confianza media (50-79%)
+            # Amarillo      = confianza baja  (<50%)
+            if confianza_val >= 0.80:
+                color = (0, 220, 0)       # Verde fuerte
+            elif confianza_val >= 0.50:
+                color = (0, 180, 80)      # Verde medio
+            else:
+                color = (0, 200, 200)     # Amarillo verdoso
 
+            # Dibujar recuadro
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+            # Etiqueta con porcentaje en español
+            etiqueta = f"Auto  {confianza_val*100:.1f}%"
+            (ancho_txt, alto_txt), _ = cv2.getTextSize(
+                etiqueta, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2
+            )
+
+            # Fondo de la etiqueta
+            cv2.rectangle(frame,
+                          (x1, y1 - alto_txt - 8),
+                          (x1 + ancho_txt + 6, y1),
+                          color, -1)
+
+            # Texto sobre el fondo
+            cv2.putText(frame, etiqueta,
+                        (x1 + 3, y1 - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
+
+        return frame
+
+    # ──────────────────────────────────────────
+    # Superpone el panel de estado en la imagen
+    # ──────────────────────────────────────────
+    def dibujar_panel_estado(self, frame, detecciones_frame, fps):
+        """Dibuja el recuadro de informacion en la esquina superior izquierda."""
+        tiempo_activo = int(time.time() - self.tiempo_inicio)
+        minutos       = tiempo_activo // 60
+        segundos      = tiempo_activo % 60
+
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (340, 80), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+
+        cv2.putText(frame,
+                    f"Autos en pantalla: {detecciones_frame}   |   Total sesion: {self.total_detecciones}",
+                    (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1)
+
+        cv2.putText(frame,
+                    f"FPS: {fps:.1f}   |   Tiempo activo: {minutos:02d}:{segundos:02d}",
+                    (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+        cv2.putText(frame,
+                    f"Confianza minima: {int(self.confianza*100)}%   |   ID siguiente: #{self.id_deteccion + 1}",
+                    (10, 73), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 160), 1)
+
+        return frame
+
+    # ──────────────────────────────────────────
+    # Bucle principal de monitoreo
+    # ──────────────────────────────────────────
     def iniciar_monitoreo(self):
-        """Bucle principal que captura, procesa y muestra el video."""
-        print("=" * 55)
-        print("  MONITOREO INICIADO - Solo detectando AUTOS")
-        print("  Presiona Q para apagar el sistema")
-        print("=" * 55)
+        """Captura frames, los procesa con YOLO y muestra resultado en pantalla."""
+        self.tiempo_inicio = time.time()
+
+        print("=" * 60)
+        print("  SISTEMA GTS VIAL - NODO DE DETECCION ACTIVO")
+        print("  Detectando: Autos  |  Modelo: YOLOv8s")
+        print("  Presiona Q para detener el monitoreo")
+        print("=" * 60)
 
         tiempo_anterior = time.time()
 
@@ -64,7 +145,7 @@ class CamaraInteligente(CamaraBase):
                 print("Se perdio la senal de la camara.")
                 break
 
-            # ── 1. Procesar con YOLO (solo autos, baja confianza para pruebas) ──
+            # ── 1. Procesar frame con YOLO ──
             resultados = self.modelo(
                 frame,
                 classes=self.clases_objetivo,
@@ -72,56 +153,64 @@ class CamaraInteligente(CamaraBase):
                 verbose=False
             )
 
-            # ── 2. Contar cuantos autos detecto en este frame ──
             detecciones_frame = len(resultados[0].boxes)
 
-            # ── 3. Imprimir en terminal con fecha, hora y fiabilidad ──
+            # ── 2. Registrar y mostrar en terminal ──
             if detecciones_frame > 0:
-                self.total_detecciones += detecciones_frame
-
                 ahora      = time.localtime()
-                dias       = ["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"]
+                dias       = ["Lunes","Martes","Miercoles","Jueves",
+                              "Viernes","Sabado","Domingo"]
                 dia_semana = dias[ahora.tm_wday]
                 fecha      = f"{ahora.tm_mday:02d}/{ahora.tm_mon:02d}/{ahora.tm_year}"
                 hora       = f"{ahora.tm_hour:02d}:{ahora.tm_min:02d}:{ahora.tm_sec:02d}"
-                fiabilidad = [f"{round(float(c)*100, 1)}%" for c in resultados[0].boxes.conf.tolist()]
 
-                print(f"[DETECCION]  {dia_semana} {fecha}  {hora}"
-                      f"  |  Autos: {detecciones_frame}"
-                      f"  |  Fiabilidad: {fiabilidad}")
+                for conf_val in resultados[0].boxes.conf.tolist():
+                    self.id_deteccion      += 1
+                    self.total_detecciones += 1
+                    pct = round(conf_val * 100, 1)
+                    self.fiabilidades.append(pct)
 
-            # ── 4. Dibujar los recuadros sobre el frame ──
-            frame_procesado = resultados[0].plot()
+                    # Etiqueta de nivel para la terminal
+                    if pct >= 80:
+                        nivel = "*** ALTA ***"
+                    elif pct >= 50:
+                        nivel = "MEDIA      "
+                    else:
+                        nivel = "baja       "
 
-            # ── 5. Calcular FPS para ver si corre fluido ──
-            tiempo_actual = time.time()
-            fps = 1 / (tiempo_actual - tiempo_anterior + 1e-9)
+                    print(f"  [#{self.id_deteccion:04d}]  {dia_semana} {fecha}  {hora}"
+                          f"  |  Fiabilidad: {pct:5.1f}%  {nivel}")
+
+            # ── 3. Dibujar recuadros personalizados ──
+            frame = self.dibujar_recuadros(frame, resultados)
+
+            # ── 4. Calcular FPS ──
+            tiempo_actual   = time.time()
+            fps             = 1 / (tiempo_actual - tiempo_anterior + 1e-9)
             tiempo_anterior = tiempo_actual
 
-            # ── 6. Agregar texto de estado en la pantalla ──
-            overlay = frame_procesado.copy()
-            cv2.rectangle(overlay, (0, 0), (320, 70), (0, 0, 0), -1)
-            cv2.addWeighted(overlay, 0.5, frame_procesado, 0.5, 0, frame_procesado)
+            # ── 5. Dibujar panel de estado ──
+            frame = self.dibujar_panel_estado(frame, detecciones_frame, fps)
 
-            cv2.putText(frame_procesado,
-                        f"Autos detectados: {detecciones_frame}",
-                        (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            # ── 6. Mostrar ventana ──
+            cv2.imshow('GTS Vial - Nodo de Deteccion', frame)
 
-            cv2.putText(frame_procesado,
-                        f"FPS: {fps:.1f}  |  Confianza min: {self.confianza}",
-                        (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-
-            # ── 7. Mostrar ventana ──
-            cv2.imshow('GTS Vial - Detector de Autos (prueba)', frame_procesado)
-
-            # ── 8. Salir con Q ──
+            # ── 7. Salir con Q ──
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        print("\n" + "=" * 55)
-        print(f"  SESION TERMINADA")
-        print(f"  Total de detecciones en esta sesion: {self.total_detecciones}")
-        print("=" * 55)
+        # ── Resumen final en terminal ──
+        duracion_total = int(time.time() - self.tiempo_inicio)
+        promedio_fiab  = (sum(self.fiabilidades) / len(self.fiabilidades)
+                          if self.fiabilidades else 0)
+
+        print("\n" + "=" * 60)
+        print("  RESUMEN DE SESION")
+        print(f"  Duracion total         : {duracion_total // 60:02d} min {duracion_total % 60:02d} seg")
+        print(f"  Total autos registrados: {self.total_detecciones}")
+        print(f"  Fiabilidad promedio    : {promedio_fiab:.1f}%")
+        print(f"  Ultimo ID registrado   : #{self.id_deteccion:04d}")
+        print("=" * 60)
 
         self.apagar()
 
