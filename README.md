@@ -4,3 +4,5 @@ herramientas utilizadas:
 - html
 - xampp
 - phpmyadmin
+- Python
+- Yolo
