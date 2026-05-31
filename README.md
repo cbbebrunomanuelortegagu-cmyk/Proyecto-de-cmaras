@@ -6,3 +6,5 @@ herramientas utilizadas:
 - phpmyadmin
 - Python
 - Yolo
+- php
+- MariaDB
