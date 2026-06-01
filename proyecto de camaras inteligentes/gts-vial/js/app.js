@@ -1,15 +1,25 @@
 /* =============================================
-   GTS VIAL - Lógica Principal
+   GTS VIAL - Lógica Principal (app.js)
+   Adaptado a db_smartcity_vial v2.0
    ============================================= */
 
 // ── Instancias de modales Bootstrap ──
-const myModal  = new bootstrap.Modal(document.getElementById('modalDetalle'));
-const modalAdd = new bootstrap.Modal(document.getElementById('modalAddCamara'));
+const myModal     = new bootstrap.Modal(document.getElementById('modalDetalle'));
+const modalAdd    = new bootstrap.Modal(document.getElementById('modalAddCamara'));
+const modalEditar = new bootstrap.Modal(document.getElementById('modalEditarCamara'));
 
 // ── Datos de sesión activa ──
 let usuarioActivo      = null;
 let infraccionActivaId = null;
 let contadorCamaras    = 3;
+
+// ── Base de datos local de cámaras (espejo de nodos_edge) ──
+// Cuando conectes PHP esto vendrá de api/camaras.php
+const CAMARAS_BD = {
+    1: { nombre: 'Cámara 01 - Centro', ubicacion: 'Av. Ayacucho y Heroínas',     ip: '192.168.1.10', umbral: 85, estado: 'Online' },
+    2: { nombre: 'Cámara 02 - Norte',  ubicacion: 'Av. Blanco Galindo Km 2',     ip: '192.168.1.11', umbral: 85, estado: 'Online' },
+    3: { nombre: 'Cámara 03 - Sur',    ubicacion: 'Av. Panamericana y 6 de Ago', ip: '192.168.1.12', umbral: 85, estado: 'Mantenimiento' },
+};
 
 // ── Contadores de estadísticas (simulan la BD en frontend) ──
 let stats = { pendientes: 3, emitidas: 0, descartadas: 0, montoTotal: 0 };
@@ -103,6 +113,8 @@ function showSection(sectionId) {
 
 // ─────────────────────────────────────────────
 // MÓDULO: ESTADÍSTICAS
+// Simula SELECT COUNT(*) sobre infracciones_ia
+// y SUM(monto_multa_bs) sobre boletas_oficiales
 // ─────────────────────────────────────────────
 
 function actualizarStats() {
@@ -277,7 +289,101 @@ function simularNotificacion(nombre) {
 // MÓDULO: CÁMARAS (tabla: nodos_edge)
 // ─────────────────────────────────────────────
 
-function abrirModalAddCamara() {
+function abrirEditorCamara(idCamara) {
+    const cam = CAMARAS_BD[idCamara];
+    if (!cam) return;
+
+    // Rellenar el modal con los datos actuales de esa cámara
+    document.getElementById('edit-cam-id').value            = idCamara;
+    document.getElementById('edit-cam-subtitulo').innerText = cam.nombre;
+    document.getElementById('edit-cam-name').value          = cam.nombre;
+    document.getElementById('edit-cam-loc').value           = cam.ubicacion;
+    document.getElementById('edit-cam-ip').value            = cam.ip;
+    document.getElementById('edit-cam-umbral').value        = cam.umbral;
+    document.getElementById('edit-cam-umbral-val').innerText = cam.umbral + '%';
+    document.getElementById('edit-cam-estado').value        = cam.estado;
+
+    modalEditar.show();
+}
+
+function guardarEdicionCamara() {
+    const id      = parseInt(document.getElementById('edit-cam-id').value);
+    const nombre  = document.getElementById('edit-cam-name').value.trim()  || CAMARAS_BD[id].nombre;
+    const loc     = document.getElementById('edit-cam-loc').value.trim()   || CAMARAS_BD[id].ubicacion;
+    const ip      = document.getElementById('edit-cam-ip').value.trim()    || CAMARAS_BD[id].ip;
+    const umbral  = parseInt(document.getElementById('edit-cam-umbral').value);
+    const estado  = document.getElementById('edit-cam-estado').value;
+
+    // Actualizar el objeto local (cuando conectes PHP irá un fetch PUT a api/camaras.php)
+    CAMARAS_BD[id] = { nombre, ubicacion: loc, ip, umbral, estado };
+
+    // Actualizar visualmente la tarjeta en el DOM
+    _actualizarTarjetaCamara(id, nombre, loc, ip, umbral, estado);
+
+    modalEditar.hide();
+
+    Swal.fire({
+        icon: 'success',
+        title: 'Cambios Guardados',
+        html: `<strong>${nombre}</strong> actualizada.<br>
+               <small class="text-muted">UPDATE en <code>nodos_edge</code></small>`,
+        timer: 2000,
+        showConfirmButton: false
+    });
+}
+
+function _actualizarTarjetaCamara(id, nombre, ubicacion, ip, umbral, estado) {
+    // Buscar la tarjeta por el texto del botón de editar que tiene onclick="abrirEditorCamara(id)"
+    const botones = document.querySelectorAll('#contenedor-camaras button');
+    let tarjeta = null;
+    botones.forEach(btn => {
+        if (btn.getAttribute('onclick') === `abrirEditorCamara(${id})`) {
+            tarjeta = btn.closest('.card');
+        }
+    });
+    if (!tarjeta) return;
+
+    // Color y badge según estado
+    const colorBorde = estado === 'Online' ? 'border-primary'
+                     : estado === 'Mantenimiento' ? 'border-warning' : 'border-danger';
+    const badgeHTML  = estado === 'Online'
+        ? `<span class="badge bg-success rounded-pill px-3">Online</span>`
+        : estado === 'Mantenimiento'
+        ? `<span class="badge bg-warning text-dark rounded-pill px-3">Mantenimiento</span>`
+        : `<span class="badge bg-danger rounded-pill px-3">Offline</span>`;
+
+    // Quitar bordes anteriores y aplicar el nuevo
+    tarjeta.classList.remove('border-primary','border-warning','border-danger');
+    tarjeta.classList.add(colorBorde);
+
+    // Actualizar contenido de la tarjeta
+    tarjeta.querySelector('h5').innerText = nombre;
+    tarjeta.querySelector('p.text-muted').innerHTML =
+        `<i class="fa-solid fa-map-pin me-1"></i> ${ubicacion}`;
+
+    // Actualizar badge de estado
+    const badgeActual = tarjeta.querySelector('.badge');
+    if (badgeActual) badgeActual.outerHTML = badgeHTML;
+
+    // Actualizar los datos del recuadro interior
+    const spans = tarjeta.querySelectorAll('.bg-light span.fw-bold');
+    if (spans[0]) spans[0].innerText = ip;
+    if (spans[1]) spans[1].innerText = umbral + '%';
+
+    // Si pasa a Mantenimiento, deshabilitar el botón de editar
+    const btnEditar = tarjeta.querySelector('button[onclick^="abrirEditorCamara"]');
+    if (btnEditar) {
+        if (estado === 'Mantenimiento') {
+            btnEditar.outerHTML = `
+                <button class="btn btn-warning border w-100 fw-bold text-dark" disabled>
+                    <i class="fa-solid fa-wrench me-2"></i> En Mantenimiento
+                </button>`;
+        } else {
+            btnEditar.disabled = false;
+            btnEditar.className = 'btn btn-light border w-100 fw-bold text-secondary';
+        }
+    }
+}
     document.getElementById('add-cam-name').value   = '';
     document.getElementById('add-cam-loc').value    = '';
     document.getElementById('add-cam-ip').value     = '';
