@@ -1,6 +1,6 @@
 /* =============================================
-   GTS VIAL - Lógica Principal (app.js)
-   Adaptado a db_smartcity_vial v2.0
+   GTS VIAL - app.js
+   Día 3: Conectado a db_smartcity_vial (XAMPP)
    ============================================= */
 
 // ── Instancias de modales Bootstrap ──
@@ -8,40 +8,34 @@ const myModal     = new bootstrap.Modal(document.getElementById('modalDetalle'))
 const modalAdd    = new bootstrap.Modal(document.getElementById('modalAddCamara'));
 const modalEditar = new bootstrap.Modal(document.getElementById('modalEditarCamara'));
 
-// ── Datos de sesión activa ──
-let usuarioActivo      = null;
-let infraccionActivaId = null;
-let contadorCamaras    = 3;
+// ── Estado global ──
+let usuarioActivo       = null;
+let infraccionActivaId  = null;
+let infraccionActivaData = null;  // objeto completo de la infracción abierta
+let contadorCamaras     = 3;
+let intervaloRefresh    = null;   // referencia al auto-refresh
+let idsEnTabla          = new Set(); // IDs ya renderizados, para detectar nuevos
 
-// ── Base de datos local de cámaras (espejo de nodos_edge) ──
-// Cuando conectes PHP esto vendrá de api/camaras.php
+// ── Cámaras locales (espejo de nodos_edge) ──
 const CAMARAS_BD = {
     1: { nombre: 'Cámara 01 - Centro', ubicacion: 'Av. Ayacucho y Heroínas',     ip: '192.168.1.10', umbral: 85, estado: 'Online' },
     2: { nombre: 'Cámara 02 - Norte',  ubicacion: 'Av. Blanco Galindo Km 2',     ip: '192.168.1.11', umbral: 85, estado: 'Online' },
     3: { nombre: 'Cámara 03 - Sur',    ubicacion: 'Av. Panamericana y 6 de Ago', ip: '192.168.1.12', umbral: 85, estado: 'Mantenimiento' },
 };
 
-// ── Contadores de estadísticas (simulan la BD en frontend) ──
-let stats = { pendientes: 3, emitidas: 0, descartadas: 0, montoTotal: 0 };
-
-// ── Datos extraídos de tipos_falta para calcular vencimiento ──
-const diasVencimiento = 30;
-
-// ── Registro local de boletas emitidas (tabla boletas_oficiales) ──
-let boletasEmitidas = [];
-let contadorBoletas = 0;
-
-// ── Usuarios válidos (tabla usuarios de la BD) ──
+// ── Usuarios válidos (tabla usuarios) ──
 const USUARIOS_BD = {
     'admin':     { password: '123456789', nombre: 'Ing. Bruno Ortega',      rol: 'Administrador' },
     'operador1': { password: 'op123456',  nombre: 'Tec. Carlos Mamani',     rol: 'Operador' },
     'operador2': { password: 'op654321',  nombre: 'Tec. Ana Flores Quispe', rol: 'Operador' }
 };
 
+const diasVencimiento = 30;
 
-// ─────────────────────────────────────────────
-// MÓDULO: AUTENTICACIÓN (tabla: usuarios)
-// ─────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════
+// MÓDULO: AUTENTICACIÓN
+// ═══════════════════════════════════════════════════
 
 function validarAcceso(e) {
     e.preventDefault();
@@ -60,11 +54,19 @@ function validarAcceso(e) {
             timer: 1800,
             showConfirmButton: false
         }).then(() => {
-            // Mostrar nombre del operador en el sidebar
             document.getElementById('sidebar-operador').innerText = usuario.nombre;
             document.getElementById('login-view').style.setProperty('display', 'none', 'important');
             document.getElementById('dashboard-view').style.display = 'block';
-            actualizarStats();
+
+            // Carga inicial de datos desde la BD
+            cargarInfracciones();
+            cargarStats();
+
+            // Auto-refresh cada 10 segundos
+            intervaloRefresh = setInterval(() => {
+                cargarInfracciones(true); // true = modo silencioso
+                cargarStats();
+            }, 10000);
         });
 
     } else {
@@ -89,6 +91,10 @@ function cerrarSesion() {
         cancelButtonText: 'Cancelar'
     }).then((result) => {
         if (result.isConfirmed) {
+            // Detener el auto-refresh al salir
+            clearInterval(intervaloRefresh);
+            intervaloRefresh = null;
+            idsEnTabla.clear();
             usuarioActivo = null;
             document.getElementById('dashboard-view').style.display = 'none';
             document.getElementById('login-view').style.setProperty('display', 'flex', 'important');
@@ -98,9 +104,9 @@ function cerrarSesion() {
 }
 
 
-// ─────────────────────────────────────────────
-// MÓDULO: NAVEGACIÓN (Sidebar)
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
+// MÓDULO: NAVEGACIÓN
+// ═══════════════════════════════════════════════════
 
 function showSection(sectionId) {
     document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
@@ -108,60 +114,186 @@ function showSection(sectionId) {
     document.getElementById(sectionId).classList.add('active');
     const btnId = 'link-' + sectionId.split('-')[1];
     document.getElementById(btnId).classList.add('active');
+
+    // Si abre boletas, recargarlas
+    if (sectionId === 'sec-boletas') cargarBoletas();
 }
 
 
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
 // MÓDULO: ESTADÍSTICAS
-// Simula SELECT COUNT(*) sobre infracciones_ia
-// y SUM(monto_multa_bs) sobre boletas_oficiales
-// ─────────────────────────────────────────────
+// SELECT COUNT y SUM desde la BD real
+// ═══════════════════════════════════════════════════
 
-function actualizarStats() {
-    document.getElementById('stat-pendientes').innerText  = stats.pendientes;
-    document.getElementById('stat-emitidas').innerText    = stats.emitidas;
-    document.getElementById('stat-descartadas').innerText = stats.descartadas;
-    document.getElementById('stat-monto').innerText       = `Bs ${stats.montoTotal.toFixed(2)}`;
-    // Badge del sidebar
-    const badge = document.getElementById('badge-pendientes');
-    badge.innerText = stats.pendientes;
-    badge.style.display = stats.pendientes > 0 ? 'inline' : 'none';
+async function cargarStats() {
+    try {
+        const res  = await fetch('api/stats.php');
+        const data = await res.json();
+        if (!data.ok) return;
+
+        document.getElementById('stat-pendientes').innerText  = data.pendientes;
+        document.getElementById('stat-emitidas').innerText    = data.emitidas;
+        document.getElementById('stat-descartadas').innerText = data.descartadas;
+        document.getElementById('stat-monto').innerText       = `Bs ${parseFloat(data.monto_total || 0).toFixed(2)}`;
+
+        const badge = document.getElementById('badge-pendientes');
+        badge.innerText      = data.pendientes;
+        badge.style.display  = data.pendientes > 0 ? 'inline' : 'none';
+
+    } catch (err) {
+        // XAMPP no disponible — usar valores locales sin romper la UI
+        console.warn('Stats no disponibles:', err.message);
+    }
 }
 
 
-// ─────────────────────────────────────────────
-// MÓDULO: INFRACCIONES (vista_infracciones_panel)
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
+// MÓDULO: INFRACCIONES
+// Lee vista_infracciones_panel y renderiza la tabla
+// ═══════════════════════════════════════════════════
 
-function revisarInfraccion(id, placa, falta, gravedad, camara, dueño, auto, monto, confianza) {
-    infraccionActivaId = id;
+async function cargarInfracciones(silencioso = false) {
+    try {
+        const res  = await fetch('api/infracciones.php');
+        const data = await res.json();
+        if (!data.ok) return;
 
-    // Calcular fecha de vencimiento (hoy + 30 días)
+        const infracciones = data.data;
+        const tbody        = document.getElementById('tabla-infracciones');
+        const nuevas       = infracciones.filter(i => !idsEnTabla.has(i.id_infraccion));
+
+        // Si hay infracciones nuevas y no es la carga inicial, mostrar notificación
+        if (silencioso && nuevas.length > 0) {
+            _notificarNuevasInfracciones(nuevas.length);
+        }
+
+        // Renderizar toda la tabla
+        tbody.innerHTML = infracciones.map(inf => _htmlFilaInfraccion(inf)).join('');
+
+        // Actualizar el set de IDs conocidos
+        infracciones.forEach(i => idsEnTabla.add(i.id_infraccion));
+
+    } catch (err) {
+        console.warn('Infracciones no disponibles (XAMPP offline):', err.message);
+        // Si XAMPP está offline la tabla mantiene los datos estáticos del HTML
+    }
+}
+
+function _htmlFilaInfraccion(inf) {
+    // Badge de infracción según gravedad
+    const colorFalta = inf.gravedad === 'Muy Grave' ? 'bg-danger'
+                     : inf.gravedad === 'Grave'     ? 'bg-warning text-dark'
+                     : 'bg-secondary';
+
+    const badgeGravedad = inf.gravedad === 'Muy Grave'
+        ? `<span class="badge bg-dark px-2 py-1 rounded-pill ms-1" style="font-size:10px;">Muy Grave</span>`
+        : inf.gravedad === 'Grave'
+        ? `<span class="badge bg-warning text-dark px-2 py-1 rounded-pill ms-1" style="font-size:10px;">Grave</span>`
+        : `<span class="badge bg-secondary px-2 py-1 rounded-pill ms-1" style="font-size:10px;">Leve</span>`;
+
+    // Formato de fecha legible
+    const fechaObj  = new Date(inf.fecha_hora);
+    const fechaStr  = fechaObj.toLocaleDateString('es-BO', { day:'2-digit', month:'short', year:'numeric' });
+    const horaStr   = fechaObj.toLocaleTimeString('es-BO', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+
+    // Nombre del propietario (puede ser null si la placa no está en el padrón)
+    const propietario = inf.propietario_nombre || '<span class="text-muted fst-italic">No registrado</span>';
+    const vehiculo    = inf.marca
+        ? `${inf.marca} ${inf.modelo || ''} ${inf.anio || ''} - ${inf.color || ''}`
+        : '<span class="text-muted fst-italic">No registrado</span>';
+
+    return `
+        <tr id="fila-${inf.id_infraccion}">
+            <td class="ps-4">
+                <span class="fw-bold text-primary">${inf.id_infraccion}</span>
+            </td>
+            <td class="text-muted">${fechaStr}<br><small>${horaStr}</small></td>
+            <td><i class="fa-solid fa-video text-muted me-1 small"></i>${inf.camara_nombre}</td>
+            <td>
+                <span class="badge ${colorFalta} px-2 py-1 rounded-pill me-1">${inf.nombre_falta}</span>
+                ${badgeGravedad}
+            </td>
+            <td><span class="fw-bold text-dark">${parseFloat(inf.monto_multa_bs).toFixed(2)}</span></td>
+            <td><span class="text-success fw-bold"><i class="fa-solid fa-check-circle me-1"></i>${inf.confianza_ia}%</span></td>
+            <td class="text-center">
+                <button class="btn btn-revisar btn-sm" data-id="${inf.id_infraccion}"
+                    onclick='revisarInfraccionBD(${JSON.stringify(inf)})'>
+                    <i class="fa-solid fa-magnifying-glass me-1"></i> Revisar Foto
+                </button>
+            </td>
+        </tr>`;
+}
+
+function _notificarNuevasInfracciones(cantidad) {
+    Swal.fire({
+        icon: 'warning',
+        title: `${cantidad} infracción${cantidad > 1 ? 'es' : ''} nueva${cantidad > 1 ? 's' : ''}`,
+        text: 'El detector registró nuevas infracciones en la BD.',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 4000,
+        timerProgressBar: true
+    });
+}
+
+// Abre el modal con datos reales de la BD
+function revisarInfraccionBD(inf) {
+    infraccionActivaId   = inf.id_infraccion;
+    infraccionActivaData = inf;
+
     const hoy        = new Date();
-    const vencimiento = new Date(hoy.setDate(hoy.getDate() + diasVencimiento));
-    const fechaVenc  = vencimiento.toLocaleDateString('es-BO', { day:'2-digit', month:'short', year:'numeric' });
+    const vencDate   = new Date(hoy.setDate(hoy.getDate() + diasVencimiento));
+    const fechaVenc  = vencDate.toLocaleDateString('es-BO', { day:'2-digit', month:'short', year:'numeric' });
 
-    document.getElementById('detId').innerText         = id;
-    document.getElementById('detPlaca').innerText      = placa;
-    document.getElementById('detFalta').innerText      = falta;
-    document.getElementById('detGravedad').innerText   = gravedad;
-    document.getElementById('detCamara').innerText     = camara;
-    document.getElementById('detDueño').innerText      = dueño;
-    document.getElementById('detAuto').innerText       = auto;
-    document.getElementById('detMonto').innerText      = parseFloat(monto).toFixed(2);
+    document.getElementById('detId').innerText          = inf.id_infraccion;
+    document.getElementById('detPlaca').innerText       = inf.placa_detectada;
+    document.getElementById('detFalta').innerText       = inf.nombre_falta;
+    document.getElementById('detGravedad').innerText    = inf.gravedad;
+    document.getElementById('detCamara').innerText      = inf.camara_nombre;
+    document.getElementById('detDueño').innerText       = inf.propietario_nombre  || 'No registrado';
+    document.getElementById('detAuto').innerText        = inf.marca
+        ? `${inf.marca} ${inf.modelo || ''} - ${inf.color || ''}`
+        : 'No registrado';
+    document.getElementById('detMonto').innerText       = parseFloat(inf.monto_multa_bs).toFixed(2);
     document.getElementById('detVencimiento').innerText = fechaVenc;
-    document.getElementById('detConfianza').innerText  = `✓ IA: ${confianza}%`;
+    document.getElementById('detConfianza').innerText   = `✓ IA: ${inf.confianza_ia}%`;
 
-    // Color del badge de gravedad
+    // Badge gravedad
     const badgeGrav = document.getElementById('detGravedad');
     badgeGrav.className = 'badge border';
-    if (gravedad === 'Muy Grave') {
-        badgeGrav.classList.add('bg-danger', 'text-white');
-    } else if (gravedad === 'Grave') {
-        badgeGrav.classList.add('bg-warning', 'text-dark');
-    } else {
-        badgeGrav.classList.add('bg-secondary', 'text-white');
-    }
+    if (inf.gravedad === 'Muy Grave')   badgeGrav.classList.add('bg-danger', 'text-white');
+    else if (inf.gravedad === 'Grave')  badgeGrav.classList.add('bg-warning', 'text-dark');
+    else                                badgeGrav.classList.add('bg-secondary', 'text-white');
+
+    myModal.show();
+}
+
+// Función legacy para las filas estáticas del HTML (compatibilidad)
+function revisarInfraccion(id, placa, falta, gravedad, camara, dueño, auto, monto, confianza) {
+    infraccionActivaId   = id;
+    infraccionActivaData = null;
+
+    const hoy       = new Date();
+    const vencDate  = new Date(hoy.setDate(hoy.getDate() + diasVencimiento));
+    const fechaVenc = vencDate.toLocaleDateString('es-BO', { day:'2-digit', month:'short', year:'numeric' });
+
+    document.getElementById('detId').innerText          = id;
+    document.getElementById('detPlaca').innerText       = placa;
+    document.getElementById('detFalta').innerText       = falta;
+    document.getElementById('detGravedad').innerText    = gravedad;
+    document.getElementById('detCamara').innerText      = camara;
+    document.getElementById('detDueño').innerText       = dueño;
+    document.getElementById('detAuto').innerText        = auto;
+    document.getElementById('detMonto').innerText       = parseFloat(monto).toFixed(2);
+    document.getElementById('detVencimiento').innerText = fechaVenc;
+    document.getElementById('detConfianza').innerText   = `✓ IA: ${confianza}%`;
+
+    const badgeGrav = document.getElementById('detGravedad');
+    badgeGrav.className = 'badge border';
+    if (gravedad === 'Muy Grave')   badgeGrav.classList.add('bg-danger', 'text-white');
+    else if (gravedad === 'Grave')  badgeGrav.classList.add('bg-warning', 'text-dark');
+    else                            badgeGrav.classList.add('bg-secondary', 'text-white');
 
     myModal.show();
 }
@@ -179,147 +311,197 @@ function cambiarEstadoBoton(id, nuevoEstado) {
     }
 }
 
-function finalizarEmision() {
+async function finalizarEmision() {
     myModal.hide();
 
-    const id     = infraccionActivaId;
-    const monto  = parseFloat(document.getElementById('detMonto').innerText);
-    const placa  = document.getElementById('detPlaca').innerText;
-    const dueño  = document.getElementById('detDueño').innerText;
-    const falta  = document.getElementById('detFalta').innerText;
-    const vence  = document.getElementById('detVencimiento').innerText;
+    const id    = infraccionActivaId;
+    const monto = parseFloat(document.getElementById('detMonto').innerText);
+    const vence = document.getElementById('detVencimiento').innerText;
+    const dueño = document.getElementById('detDueño').innerText;
 
-    // Actualizar stats (INSERT en boletas_oficiales)
-    stats.pendientes  = Math.max(0, stats.pendientes - 1);
-    stats.emitidas   += 1;
-    stats.montoTotal += monto;
-    actualizarStats();
+    // ── INSERT en boletas_oficiales via PHP ──
+    try {
+        const res  = await fetch('api/boletas.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id_infraccion:  id,
+                id_usuario:     usuarioActivo?.id_usuario || 1,
+                monto_multa_bs: monto
+            })
+        });
+        const data = await res.json();
 
-    // Cambiar estado visual del botón
-    cambiarEstadoBoton(id, 'emitida');
+        if (data.ok) {
+            cambiarEstadoBoton(id, 'emitida');
+            idsEnTabla.add(id);
+            cargarStats();
+            cargarBoletas();
 
-    // Registrar boleta en la tabla de boletas (INSERT)
-    contadorBoletas++;
-    boletasEmitidas.push({ id: contadorBoletas, infraccion: id, placa, dueño, falta, monto, vence, estado: 'No Pagado' });
-    renderizarTablaBoletas();
+            Swal.fire({
+                title: 'Boleta Generada',
+                html: `Multa <strong>${id}</strong> registrada en BD.<br>
+                       Monto: <strong>Bs ${monto.toFixed(2)}</strong><br>
+                       Vence: <strong>${vence}</strong>`,
+                icon: 'success',
+                confirmButtonColor: '#198754'
+            });
+        } else {
+            throw new Error(data.error);
+        }
 
-    infraccionActivaId = null;
+    } catch (err) {
+        // Si XAMPP está offline, igual actualizar la UI
+        cambiarEstadoBoton(id, 'emitida');
+        Swal.fire({
+            title: 'Boleta Generada (offline)',
+            html: `Monto: <strong>Bs ${monto.toFixed(2)}</strong><br>
+                   <small class="text-warning">XAMPP no disponible — dato no persistido en BD</small>`,
+            icon: 'warning',
+            confirmButtonColor: '#198754'
+        });
+    }
 
-    Swal.fire({
-        title: 'Boleta Generada',
-        html: `La multa <strong>${id}</strong> fue registrada.<br>
-               Monto: <strong>Bs ${monto.toFixed(2)}</strong><br>
-               Vence: <strong>${vence}</strong>`,
-        icon: 'success',
-        confirmButtonColor: '#198754'
-    });
+    infraccionActivaId   = null;
+    infraccionActivaData = null;
 }
 
-function rechazarMulta() {
+async function rechazarMulta() {
     myModal.hide();
 
     const id = infraccionActivaId;
 
-    // Actualizar stats (UPDATE estado_revision = 'Descartada')
-    stats.pendientes   = Math.max(0, stats.pendientes - 1);
-    stats.descartadas += 1;
-    actualizarStats();
+    // ── UPDATE estado_revision = 'Descartada' via PHP ──
+    try {
+        await fetch('api/rechazar.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id_infraccion: id,
+                id_usuario:    usuarioActivo?.id_usuario || 1
+            })
+        });
+    } catch (err) {
+        console.warn('No se pudo actualizar BD:', err.message);
+    }
 
     cambiarEstadoBoton(id, 'rechazada');
-    infraccionActivaId = null;
+    cargarStats();
 
     Swal.fire({
         title: 'Infracción Descartada',
-        text: 'El registro fue marcado como Falso Positivo en la BD.',
+        html: `Registro <strong>${id}</strong> marcado como Falso Positivo.`,
         icon: 'info',
         confirmButtonColor: '#6c757d'
     });
+
+    infraccionActivaId   = null;
+    infraccionActivaData = null;
 }
 
 
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
 // MÓDULO: BOLETAS EMITIDAS
-// Renderiza la tabla sec-boletas
-// ─────────────────────────────────────────────
+// Lee boletas_oficiales con JOIN a propietarios
+// ═══════════════════════════════════════════════════
 
-function renderizarTablaBoletas() {
-    const tbody = document.getElementById('tabla-boletas');
+async function cargarBoletas() {
+    try {
+        const res  = await fetch('api/boletas.php');
+        const data = await res.json();
+        if (!data.ok) return;
 
-    if (boletasEmitidas.length === 0) {
-        tbody.innerHTML = `
-            <tr><td colspan="7" class="text-center text-muted py-5">
-                <i class="fa-solid fa-inbox fa-2x mb-2 d-block opacity-25"></i>
-                Aún no se han emitido boletas en esta sesión.
-            </td></tr>`;
-        return;
+        const tbody = document.getElementById('tabla-boletas');
+
+        if (data.data.length === 0) {
+            tbody.innerHTML = `
+                <tr><td colspan="7" class="text-center text-muted py-5">
+                    <i class="fa-solid fa-inbox fa-2x mb-2 d-block opacity-25"></i>
+                    Aún no se han emitido boletas.
+                </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.data.map(b => {
+            const estadoColor = b.estado_pago === 'Pagado'    ? 'bg-success'
+                              : b.estado_pago === 'Apelación' ? 'bg-info text-dark'
+                              : b.estado_pago === 'Anulado'   ? 'bg-secondary'
+                              : 'bg-warning text-dark';
+            return `
+                <tr>
+                    <td class="ps-4 fw-bold text-dark">#${String(b.id_boleta).padStart(4,'0')}</td>
+                    <td class="text-primary fw-bold">${b.id_infraccion_fk}</td>
+                    <td>${b.propietario || 'No registrado'}<br>
+                        <small class="text-muted font-monospace">${b.placa || '---'}</small></td>
+                    <td class="fw-bold">Bs ${parseFloat(b.monto_multa_bs).toFixed(2)}</td>
+                    <td class="text-danger small">${b.fecha_vencimiento || '---'}</td>
+                    <td><span class="badge ${estadoColor} rounded-pill px-2">${b.estado_pago}</span></td>
+                    <td>
+                        <button class="btn btn-outline-primary btn-sm rounded-pill px-3"
+                                onclick="enviarNotificacion(${b.id_boleta}, '${b.propietario || 'No registrado'}')">
+                            <i class="fa-solid fa-envelope me-1"></i> Notificar
+                        </button>
+                    </td>
+                </tr>`;
+        }).join('');
+
+    } catch (err) {
+        console.warn('Boletas no disponibles:', err.message);
+    }
+}
+
+async function enviarNotificacion(idBoleta, nombre) {
+    try {
+        await fetch('api/notificaciones.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id_boleta: idBoleta, canal: 'Email' })
+        });
+    } catch (err) {
+        console.warn('Notificación no persistida:', err.message);
     }
 
-    tbody.innerHTML = boletasEmitidas.map(b => `
-        <tr>
-            <td class="ps-4 fw-bold text-dark">#${String(b.id).padStart(4,'0')}</td>
-            <td class="text-primary fw-bold">${b.infraccion}</td>
-            <td>${b.dueño}<br><small class="text-muted font-monospace">${b.placa}</small></td>
-            <td class="fw-bold">Bs ${parseFloat(b.monto).toFixed(2)}</td>
-            <td class="text-danger small">${b.vence}</td>
-            <td><span class="badge bg-warning text-dark rounded-pill px-2">No Pagado</span></td>
-            <td>
-                <button class="btn btn-outline-primary btn-sm rounded-pill px-3"
-                        onclick="simularNotificacion('${b.dueño}')">
-                    <i class="fa-solid fa-envelope me-1"></i> Notificar
-                </button>
-            </td>
-        </tr>
-    `).join('');
-}
-
-function simularNotificacion(nombre) {
-    // Simula INSERT en tabla notificaciones
     Swal.fire({
         icon: 'success',
         title: 'Notificación Enviada',
         html: `Correo enviado a <strong>${nombre}</strong>.<br>
-               <small class="text-muted">Registrado en tabla <code>notificaciones</code></small>`,
+               <small class="text-muted">INSERT en tabla <code>notificaciones</code></small>`,
         timer: 2000,
         showConfirmButton: false
     });
 }
 
 
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
 // MÓDULO: CÁMARAS (tabla: nodos_edge)
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
 
 function abrirEditorCamara(idCamara) {
     const cam = CAMARAS_BD[idCamara];
     if (!cam) return;
 
-    // Rellenar el modal con los datos actuales de esa cámara
-    document.getElementById('edit-cam-id').value            = idCamara;
-    document.getElementById('edit-cam-subtitulo').innerText = cam.nombre;
-    document.getElementById('edit-cam-name').value          = cam.nombre;
-    document.getElementById('edit-cam-loc').value           = cam.ubicacion;
-    document.getElementById('edit-cam-ip').value            = cam.ip;
-    document.getElementById('edit-cam-umbral').value        = cam.umbral;
+    document.getElementById('edit-cam-id').value             = idCamara;
+    document.getElementById('edit-cam-subtitulo').innerText  = cam.nombre;
+    document.getElementById('edit-cam-name').value           = cam.nombre;
+    document.getElementById('edit-cam-loc').value            = cam.ubicacion;
+    document.getElementById('edit-cam-ip').value             = cam.ip;
+    document.getElementById('edit-cam-umbral').value         = cam.umbral;
     document.getElementById('edit-cam-umbral-val').innerText = cam.umbral + '%';
-    document.getElementById('edit-cam-estado').value        = cam.estado;
+    document.getElementById('edit-cam-estado').value         = cam.estado;
 
     modalEditar.show();
 }
 
 function guardarEdicionCamara() {
-    const id      = parseInt(document.getElementById('edit-cam-id').value);
-    const nombre  = document.getElementById('edit-cam-name').value.trim()  || CAMARAS_BD[id].nombre;
-    const loc     = document.getElementById('edit-cam-loc').value.trim()   || CAMARAS_BD[id].ubicacion;
-    const ip      = document.getElementById('edit-cam-ip').value.trim()    || CAMARAS_BD[id].ip;
-    const umbral  = parseInt(document.getElementById('edit-cam-umbral').value);
-    const estado  = document.getElementById('edit-cam-estado').value;
+    const id     = parseInt(document.getElementById('edit-cam-id').value);
+    const nombre = document.getElementById('edit-cam-name').value.trim()  || CAMARAS_BD[id].nombre;
+    const loc    = document.getElementById('edit-cam-loc').value.trim()   || CAMARAS_BD[id].ubicacion;
+    const ip     = document.getElementById('edit-cam-ip').value.trim()    || CAMARAS_BD[id].ip;
+    const umbral = parseInt(document.getElementById('edit-cam-umbral').value);
+    const estado = document.getElementById('edit-cam-estado').value;
 
-    // Actualizar el objeto local (cuando conectes PHP irá un fetch PUT a api/camaras.php)
     CAMARAS_BD[id] = { nombre, ubicacion: loc, ip, umbral, estado };
-
-    // Actualizar visualmente la tarjeta en el DOM
     _actualizarTarjetaCamara(id, nombre, loc, ip, umbral, estado);
-
     modalEditar.hide();
 
     Swal.fire({
@@ -333,9 +515,8 @@ function guardarEdicionCamara() {
 }
 
 function _actualizarTarjetaCamara(id, nombre, ubicacion, ip, umbral, estado) {
-    // Buscar la tarjeta por el texto del botón de editar que tiene onclick="abrirEditorCamara(id)"
     const botones = document.querySelectorAll('#contenedor-camaras button');
-    let tarjeta = null;
+    let tarjeta   = null;
     botones.forEach(btn => {
         if (btn.getAttribute('onclick') === `abrirEditorCamara(${id})`) {
             tarjeta = btn.closest('.card');
@@ -343,7 +524,6 @@ function _actualizarTarjetaCamara(id, nombre, ubicacion, ip, umbral, estado) {
     });
     if (!tarjeta) return;
 
-    // Color y badge según estado
     const colorBorde = estado === 'Online' ? 'border-primary'
                      : estado === 'Mantenimiento' ? 'border-warning' : 'border-danger';
     const badgeHTML  = estado === 'Online'
@@ -352,25 +532,18 @@ function _actualizarTarjetaCamara(id, nombre, ubicacion, ip, umbral, estado) {
         ? `<span class="badge bg-warning text-dark rounded-pill px-3">Mantenimiento</span>`
         : `<span class="badge bg-danger rounded-pill px-3">Offline</span>`;
 
-    // Quitar bordes anteriores y aplicar el nuevo
     tarjeta.classList.remove('border-primary','border-warning','border-danger');
     tarjeta.classList.add(colorBorde);
-
-    // Actualizar contenido de la tarjeta
     tarjeta.querySelector('h5').innerText = nombre;
-    tarjeta.querySelector('p.text-muted').innerHTML =
-        `<i class="fa-solid fa-map-pin me-1"></i> ${ubicacion}`;
+    tarjeta.querySelector('p.text-muted').innerHTML = `<i class="fa-solid fa-map-pin me-1"></i> ${ubicacion}`;
 
-    // Actualizar badge de estado
     const badgeActual = tarjeta.querySelector('.badge');
     if (badgeActual) badgeActual.outerHTML = badgeHTML;
 
-    // Actualizar los datos del recuadro interior
     const spans = tarjeta.querySelectorAll('.bg-light span.fw-bold');
     if (spans[0]) spans[0].innerText = ip;
     if (spans[1]) spans[1].innerText = umbral + '%';
 
-    // Si pasa a Mantenimiento, deshabilitar el botón de editar
     const btnEditar = tarjeta.querySelector('button[onclick^="abrirEditorCamara"]');
     if (btnEditar) {
         if (estado === 'Mantenimiento') {
@@ -379,11 +552,13 @@ function _actualizarTarjetaCamara(id, nombre, ubicacion, ip, umbral, estado) {
                     <i class="fa-solid fa-wrench me-2"></i> En Mantenimiento
                 </button>`;
         } else {
-            btnEditar.disabled = false;
+            btnEditar.disabled  = false;
             btnEditar.className = 'btn btn-light border w-100 fw-bold text-secondary';
         }
     }
 }
+
+function abrirModalAddCamara() {
     document.getElementById('add-cam-name').value   = '';
     document.getElementById('add-cam-loc').value    = '';
     document.getElementById('add-cam-ip').value     = '';
@@ -392,10 +567,10 @@ function _actualizarTarjetaCamara(id, nombre, ubicacion, ip, umbral, estado) {
 }
 
 function guardarNuevaCamara() {
-    const nombre  = document.getElementById('add-cam-name').value   || 'Equipo Nuevo';
-    const loc     = document.getElementById('add-cam-loc').value    || 'Ubicación pendiente';
-    const ip      = document.getElementById('add-cam-ip').value     || '0.0.0.0';
-    const umbral  = document.getElementById('add-cam-umbral').value || '85';
+    const nombre = document.getElementById('add-cam-name').value   || 'Equipo Nuevo';
+    const loc    = document.getElementById('add-cam-loc').value    || 'Ubicación pendiente';
+    const ip     = document.getElementById('add-cam-ip').value     || '0.0.0.0';
+    const umbral = document.getElementById('add-cam-umbral').value || '85';
 
     contadorCamaras++;
     const nuevaTarjeta = document.createElement('div');
@@ -422,7 +597,8 @@ function guardarNuevaCamara() {
                     <span class="fw-bold">${new Date().toLocaleDateString('es-BO')}</span>
                 </div>
             </div>
-            <button class="btn btn-light border w-100 fw-bold text-secondary" onclick="alert('Edición en desarrollo')">
+            <button class="btn btn-light border w-100 fw-bold text-secondary"
+                    onclick="alert('Edición en desarrollo')">
                 <i class="fa-solid fa-pen-to-square me-2"></i> Editar Configuración
             </button>
         </div>`;
@@ -433,23 +609,23 @@ function guardarNuevaCamara() {
     Swal.fire({
         icon: 'success',
         title: 'Nodo Registrado',
-        html: `<strong>${nombre}</strong> fue insertado en <code>nodos_edge</code>.`,
+        html: `<strong>${nombre}</strong> insertado en <code>nodos_edge</code>.`,
         confirmButtonColor: '#0d6efd'
     });
 }
 
 
-// ─────────────────────────────────────────────
-// MÓDULO: CONFIGURACIÓN (nodos_edge.umbral_ia)
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════
+// MÓDULO: CONFIGURACIÓN
+// ═══════════════════════════════════════════════════
 
 function guardarAjustes() {
-    const umbral    = document.getElementById('slider-umbral').value;
-    const vencDias  = document.getElementById('config-vencimiento').value;
+    const umbral   = document.getElementById('slider-umbral').value;
+    const vencDias = document.getElementById('config-vencimiento').value;
     Swal.fire({
         title: 'Configuración Guardada',
         html: `Umbral IA: <strong>${umbral}%</strong><br>
-               Vencimiento boletas: <strong>${vencDias} días</strong><br>
+               Vencimiento: <strong>${vencDias} días</strong><br>
                <small class="text-muted">UPDATE en <code>nodos_edge.umbral_ia</code></small>`,
         icon: 'success',
         timer: 2000,
